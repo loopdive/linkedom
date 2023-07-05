@@ -305,8 +305,8 @@ export class Element extends ParentNode {
   // <ShadowDOM>
   get shadowRoot() {
     if (shadowRoots.has(this)) {
-      const {mode, shadowRoot} = shadowRoots.get(this);
-      if (mode === 'open')
+      const shadowRoot = shadowRoots.get(this);
+      if (shadowRoot.mode === 'open')
         return shadowRoot;
     }
     return null;
@@ -315,14 +315,8 @@ export class Element extends ParentNode {
   attachShadow(init) {
     if (shadowRoots.has(this))
       throw new Error('operation not supported');
-    // TODO: shadowRoot should be likely a specialized class that extends DocumentFragment
-    //       but until DSD is out, I am not sure I should spend time on this.
-    const shadowRoot = new ShadowRoot(this);
-    shadowRoot.append(...this.childNodes);
-    shadowRoots.set(this, {
-      mode: init.mode,
-      shadowRoot
-    });
+    const shadowRoot = new ShadowRoot(this, init);
+    shadowRoots.set(this, shadowRoot);
     return shadowRoot;
   }
   // </ShadowDOM>
