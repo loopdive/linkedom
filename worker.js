@@ -3558,7 +3558,7 @@ const connectedCallback = element => {
   if (reactive) {
     triggerConnected(element);
     if (shadowRoots.has(element))
-      element = shadowRoots.get(element).shadowRoot;
+      element = shadowRoots.get(element);
     let {[NEXT]: next, [END]: end} = element;
     while (next !== end) {
       if (next.nodeType === ELEMENT_NODE)
@@ -3573,7 +3573,7 @@ const disconnectedCallback = element => {
   if (reactive) {
     triggerDisconnected(element);
     if (shadowRoots.has(element))
-      element = shadowRoots.get(element).shadowRoot;
+      element = shadowRoots.get(element);
     let {[NEXT]: next, [END]: end} = element;
     while (next !== end) {
       if (next.nodeType === ELEMENT_NODE)
@@ -6712,8 +6712,8 @@ class NonElementParentNode extends ParentNode {
  * @implements globalThis.DocumentFragment
  */
 let DocumentFragment$1 = class DocumentFragment extends NonElementParentNode {
-  constructor(ownerDocument) {
-    super(ownerDocument, '#document-fragment', DOCUMENT_FRAGMENT_NODE);
+  constructor(ownerDocument, tagName = '#document-fragment') {
+    super(ownerDocument, tagName, DOCUMENT_FRAGMENT_NODE);
   }
 };
 
@@ -7155,11 +7155,15 @@ class NamedNodeMap extends Array {
 
 /**
  * @implements globalThis.ShadowRoot
+ * https://dom.spec.whatwg.org/#shadowroot
  */
-let ShadowRoot$1 = class ShadowRoot extends NonElementParentNode {
-  constructor(host) {
+let ShadowRoot$1 = class ShadowRoot extends DocumentFragment$1 {
+  constructor(host, init) {
     super(host.ownerDocument, '#shadow-root', DOCUMENT_FRAGMENT_NODE);
     this.host = host;
+    this.mode = init.mode;
+    this.delegatesFocus = init.delegatesFocus ?? false;
+    this.slotAssignment = init.slotAssignment ?? "named";
   }
 
   get innerHTML() {
@@ -7308,6 +7312,41 @@ let Element$1 = class Element extends ParentNode {
     setInnerHtml(this, html);
   }
 
+  // TODO: replace this [getInnerHTML polyfill](https://gist.github.com/developit/54f3e3d1ce9ed0e5a171044edcd0784f) with a more efficient solution
+  getInnerHTML(opts) {
+    const html = this.innerHTML;
+    if (!opts || !opts.includeShadowRoots) return html;
+    const m = new Map();
+    for (const c of opts.closedRoots || []) m.set(c.host, c);
+    const p = [];
+    
+    function walk(node) {
+      let c;
+      let shadow = node.shadowRoot || m.get(node);
+      if (shadow) {
+        p.push(node.innerHTML, `<template shadowrootmode="${shadow.mode}">${shadow.innerHTML}</template>`);
+      }
+
+      c = node.firstElementChild;
+      while (c) {
+        walk(c);
+        c = c.nextElementSibling;
+      }
+    }
+    
+    walk(this);
+    let out = "",
+      c = 0,
+      i = 0,
+      o;
+    for (; c < p.length; c += 2) {
+      o = html.indexOf(p[c], i);
+      out += html.substring(i, o) + p[c + 1];
+      i = o;
+    }
+    return out + html.substring(i);
+  }
+
   get outerHTML() { return this.toString(); }
   set outerHTML(html) {
     const template = this.ownerDocument.createElement('');
@@ -7428,8 +7467,8 @@ let Element$1 = class Element extends ParentNode {
   // <ShadowDOM>
   get shadowRoot() {
     if (shadowRoots.has(this)) {
-      const {mode, shadowRoot} = shadowRoots.get(this);
-      if (mode === 'open')
+      const shadowRoot = shadowRoots.get(this);
+      if (shadowRoot.mode === 'open')
         return shadowRoot;
     }
     return null;
@@ -7438,14 +7477,8 @@ let Element$1 = class Element extends ParentNode {
   attachShadow(init) {
     if (shadowRoots.has(this))
       throw new Error('operation not supported');
-    // TODO: shadowRoot should be likely a specialized class that extends DocumentFragment
-    //       but until DSD is out, I am not sure I should spend time on this.
-    const shadowRoot = new ShadowRoot$1(this);
-    shadowRoot.append(...this.childNodes);
-    shadowRoots.set(this, {
-      mode: init.mode,
-      shadowRoot
-    });
+    const shadowRoot = new ShadowRoot$1(this, init);
+    shadowRoots.set(this, shadowRoot);
     return shadowRoot;
   }
   // </ShadowDOM>
