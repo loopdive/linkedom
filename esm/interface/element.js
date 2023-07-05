@@ -185,6 +185,41 @@ export class Element extends ParentNode {
     setInnerHtml(this, html);
   }
 
+  // TODO: replace this [getInnerHTML polyfill](https://gist.github.com/developit/54f3e3d1ce9ed0e5a171044edcd0784f) with a more efficient solution
+  getInnerHTML(opts) {
+    const html = this.innerHTML;
+    if (!opts || !opts.includeShadowRoots) return html;
+    const m = new Map();
+    for (const c of opts.closedRoots || []) m.set(c.host, c);
+    const p = [];
+    
+    function walk(node) {
+      let c;
+      let shadow = node.shadowRoot || m.get(node);
+      if (shadow) {
+        p.push(node.innerHTML, `<template shadowrootmode="${shadow.mode}">${shadow.innerHTML}</template>`);
+      }
+
+      c = node.firstElementChild;
+      while (c) {
+        walk(c);
+        c = c.nextElementSibling;
+      }
+    }
+    
+    walk(this);
+    let out = "",
+      c = 0,
+      i = 0,
+      o;
+    for (; c < p.length; c += 2) {
+      o = html.indexOf(p[c], i);
+      out += html.substring(i, o) + p[c + 1];
+      i = o;
+    }
+    return out + html.substring(i);
+  }
+
   get outerHTML() { return this.toString(); }
   set outerHTML(html) {
     const template = this.ownerDocument.createElement('');
@@ -305,8 +340,8 @@ export class Element extends ParentNode {
   // <ShadowDOM>
   get shadowRoot() {
     if (shadowRoots.has(this)) {
-      const {mode, shadowRoot} = shadowRoots.get(this);
-      if (mode === 'open')
+      const shadowRoot = shadowRoots.get(this);
+      if (shadowRoot.mode === 'open')
         return shadowRoot;
     }
     return null;
@@ -315,14 +350,8 @@ export class Element extends ParentNode {
   attachShadow(init) {
     if (shadowRoots.has(this))
       throw new Error('operation not supported');
-    // TODO: shadowRoot should be likely a specialized class that extends DocumentFragment
-    //       but until DSD is out, I am not sure I should spend time on this.
-    const shadowRoot = new ShadowRoot(this);
-    shadowRoot.append(...this.childNodes);
-    shadowRoots.set(this, {
-      mode: init.mode,
-      shadowRoot
-    });
+    const shadowRoot = new ShadowRoot(this, init);
+    shadowRoots.set(this, shadowRoot);
     return shadowRoot;
   }
   // </ShadowDOM>
